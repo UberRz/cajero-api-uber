@@ -1,49 +1,58 @@
-''' from db import user_db
-
-def main():
-    print("db:\n")
-    print(user_db.database_users)
-    print("camilo:\n")
-    print(user_db.get_user("camilo24"))
-
-
-if __name__== '__main__':
-    main() '''
-
-from fastapi import FastAPI
-from db.user_db import database_users
-from fastapi import HTTPException
 from db.user_db import UserInDB
+from db.user_db import update_user, get_user
+from db.transaction_db import TransactionInDB
+from db.transaction_db import save_transaction
+from models.user_models import UserIn, UserOut
+from models.transaction_models import TransactionIn, TransactionOut
+import datetime
+from fastapi import FastAPI, HTTPException
 
-app=FastAPI()
+api = FastAPI()
 
-@app.get("/")                   #GET / HTTP/1.1 (lado del cliente)
-async def root():
-    return {"message": "Hello FastAPI"} 
+@api.post("/user/auth/")
+async def auth_user(user_in: UserIn):
 
-@app.get("/users")               #GET /users  HTTP/1.1 (lado del cliente)
-async def users():
-    return {"message": database_users}
+    user_in_db = get_user(user_in.username)
 
-@app.get("/users/{username}")               #GET /users/username HTTP/1.1 (lado del cliente)
-async def get_user_by_username(username:str):
-    if username in database_users:
-        return {"message": database_users[username]}
-#    return {"message": "Usuario no encontrado"}
-    raise HTTPException(status_code=404, detail="El usuario no existe")    
+    if user_in_db == None:
+        raise HTTPException(status_code=404, detail="El usuario no existe")
 
-@app.post("/users/")
-async def create_user(user: UserInDB):
-    database_users[user.username]=user
-    return user
+    if user_in_db.password != user_in.password:
+        return  {"Autenticado": False}
 
-@app.delete("/users/")
-async def create_user(user : UserInDB):
-    del database_users[user.username] 
-    return user
+    return  {"Autenticado": True}
 
-@app.put("/users/")
-async def create_user(user : UserInDB):
-    database_users[user.username] = user 
-    return user
 
+@api.get("/user/balance/{username}")
+async def get_balance(username: str):
+
+    user_in_db = get_user(username)
+
+    if user_in_db == None:
+        raise HTTPException(status_code=404, detail="El usuario no existe")
+
+    user_out = UserOut(**user_in_db.dict())
+
+    return  user_out
+
+
+@api.put("/user/transaction/")
+async def make_transaction(transaction_in: TransactionIn):
+
+    user_in_db = get_user(transaction_in.username)
+
+    if user_in_db == None:
+        raise HTTPException(status_code=404, detail="El usuario no existe")
+
+    if user_in_db.balance < transaction_in.value:
+        raise HTTPException(status_code=400, detail="No se tienen los fondos suficientes")
+
+    user_in_db.balance = user_in_db.balance - transaction_in.value
+    update_user(user_in_db)
+
+    transaction_in_db = TransactionInDB(**transaction_in.dict(), actual_balance = user_in_db.balance)
+    transaction_in_db = save_transaction(transaction_in_db)
+
+    transaction_out = TransactionOut(**transaction_in_db.dict())
+
+    return  transaction_out
